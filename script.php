@@ -7,8 +7,8 @@ use GuzzleHttp\Client;
 
 // Читаем логин и пароль из файла .env
 $env = parse_ini_file(__DIR__ . '/.env');
-$login = $env['M4_LOGIN'] ?? 'dev3';
-$password = $env['M4_PASSWORD'] ?? 'kDub465u';
+$login = $env['M4_LOGIN'];
+$password = $env['M4_PASSWORD'];
 
 // ФИО передаем параметром при запуске
 $fio = $argv[1] ?? 'Кандидат';
