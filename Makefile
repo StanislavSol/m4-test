@@ -1,8 +1,9 @@
 install:
-	composer require guzzlehttp/guzzle
+	composer install
+	composer dump-autoload
 
 run:
 	php script.php
 
 clean:
-	rm -rf vendor/
+	rm -rf vendor/ composer.lock

@@ -3,89 +3,54 @@
 
 require 'vendor/autoload.php';
 
-use GuzzleHttp\Client;
+use M4\M4ApiClient;
 
 // Читаем логин и пароль из файла .env
 $env = parse_ini_file(__DIR__ . '/.env');
-$login = $env['M4_LOGIN'] ?? 'dev3';
-$password = $env['M4_PASSWORD'] ?? 'kDub465u';
+$login = $env['M4_LOGIN'] ?? null;
+$password = $env['M4_PASSWORD'] ?? null;
 
-// ФИО передаем параметром при запуске
+// Проверяем, что логин и пароль указаны
+if (!$login || !$password) {
+    die("Ошибка: создай файл .env с M4_LOGIN и M4_PASSWORD\n");
+}
+
+// ФИО передаем первым параметром при запуске
 $fio = $argv[1] ?? 'Кандидат';
 
-// Создаем HTTP клиент (отключаем проверку SSL для тестового сервера)
-$client = new Client(['verify' => false, 'timeout' => 30]);
+// Создаем экземпляр API клиента
+$api = new M4ApiClient();
 
-echo "\n=== M4 API ТЕСТ ===\n\n";
+echo "\n=== M4 API ===\n\n";
 
-// ============================================
 // 1. Авторизация
-// ============================================
 echo "1. Авторизация...\n";
-$response = $client->post('https://developer-api.m4.systems:4443/api_auth/login_check', [
-    'json' => ['username' => $login, 'password' => $password]
-]);
-$auth = json_decode($response->getBody(), true);
-$token = $auth['token'];
-
-// Ищем URL сервиса SD (Service Desk)
-$sdUrl = null;
-foreach ($auth['services'] as $service) {
-    if ($service['code'] === 'SD') {
-        $sdUrl = rtrim($service['apiUrl'], '/');
-    }
-}
+$api->auth($login, $password);
 echo "OK\n\n";
 
-// ============================================
 // 2. Получаем список заявок за последние 3 дня
-// ============================================
-echo "2. Получаем заявки за последние 3 дня...\n";
+echo "2. Получаем заявки...\n";
 $date = date('d.m.Y H:i:s', strtotime('-3 days'));
-$response = $client->post($sdUrl, [
-    'headers' => ['Authorization' => "Bearer $token"],
-    'json' => [
-        'jsonrpc' => '2.0',
-        'method' => 'M4GetTasks',
-        'params' => ['lastUpdate' => $date],
-        'id' => 1
-    ]
-]);
-$data = json_decode($response->getBody(), true);
-$tasks = $data['result'] ?? [];
+$tasks = $api->getTasks($date);
 $count = count($tasks);
+echo "Найдено: $count\n\n";
 
-echo "Найдено: $count заявок\n\n";
-
-// Проверяем, хватает ли заявок для теста
+// Если заявок меньше двух - завершаемся без ошибки
 if ($count < 2) {
     echo "Недостаточно заявок для выполнения тестового сценария\n";
     exit(0);
 }
 
-// ============================================
-// 3. Берем вторую заявку из списка (индекс 1)
-// ============================================
+// 3. Берем вторую заявку (индекс 1)
 $task = $tasks[1];
 $taskId = $task['taskId'] ?? $task['id'];
-echo "3. Вторая заявка, ID: $taskId\n\n";
+echo "3. Вторая заявка: $taskId\n\n";
 
-// ============================================
 // 4. Получаем детальную информацию по заявке
-// ============================================
-echo "4. Детальная информация по заявке:\n";
-$response = $client->post($sdUrl, [
-    'headers' => ['Authorization' => "Bearer $token"],
-    'json' => [
-        'jsonrpc' => '2.0',
-        'method' => 'M4GetTaskDetails',
-        'params' => ['taskId' => (int)$taskId],
-        'id' => 2
-    ]
-]);
-$details = json_decode($response->getBody(), true)['result'] ?? [];
+echo "4. Детали заявки...\n";
+$details = $api->getTask($taskId);
 
-// Определяем статус (может быть массивом или строкой)
+// Определяем название статуса (может быть массивом или строкой)
 $status = $details['status'] ?? null;
 if (is_array($status)) {
     $statusName = $status['name'] ?? 'N/A';
@@ -99,29 +64,17 @@ echo "req: {$details['req']}\n";
 echo "caption: {$details['caption']}\n";
 echo "status/statusName: $statusName\n\n";
 
-// ============================================
 // 5. Загружаем два изображения на сервер
-// ============================================
 echo "5. Загружаем изображения...\n";
-
-// Ищем URL сервиса STORAGE для загрузки файлов
-$storageUrl = null;
-foreach ($auth['services'] as $service) {
-    if ($service['code'] === 'STORAGE') {
-        $storageUrl = rtrim($service['apiUrl'], '/');
-    }
-}
-
-// Создаем папку для изображений, если её нет
 $imagesDir = __DIR__ . '/images';
-if (!is_dir($imagesDir)) {
-    mkdir($imagesDir, 0755, true);
-}
 
-// Ищем изображения в папке
+// Создаем папку для картинок если её нет
+if (!is_dir($imagesDir)) mkdir($imagesDir, 0755, true);
+
+// Ищем картинки в папке
 $images = glob($imagesDir . '/*.{jpg,jpeg,png,gif}', GLOB_BRACE);
 
-// Если нет изображений - создаем тестовые
+// Если картинок нет - создаем тестовые
 if (count($images) < 2) {
     echo "Создаем тестовые изображения...\n";
     for ($i = 1; $i <= 2; $i++) {
@@ -133,70 +86,28 @@ if (count($images) < 2) {
     $images = glob($imagesDir . '/*.jpg');
 }
 
-// Загружаем первые два изображения
+// Загружаем первые две картинки
 $guids = [];
 foreach (array_slice($images, 0, 2) as $file) {
     echo basename($file) . "... ";
-    $response = $client->post($storageUrl . '/putfile.php', [
-        'headers' => ['Authorization' => "Bearer $token"],
-        'multipart' => [['name' => 'file', 'contents' => fopen($file, 'r')]]
-    ]);
-    $result = json_decode($response->getBody(), true);
-    $guids[] = $result['result']['guid'];
+    $guids[] = $api->upload($file);
     echo "OK\n";
 }
 
-// ============================================
-// 6. Прикрепляем изображения к заявке
-// ============================================
-echo "\n6. Прикрепляем изображения к заявке...\n";
-$files = array_map(function($guid) {
-    return ['guid' => $guid, 'typeAttachId' => 5]; // тип 5 = изображение
-}, $guids);
-
-$client->post($sdUrl, [
-    'headers' => ['Authorization' => "Bearer $token"],
-    'json' => [
-        'jsonrpc' => '2.0',
-        'method' => 'M4AddTaskAttach',
-        'params' => ['taskId' => (int)$taskId, 'files' => $files],
-        'id' => 3
-    ]
-]);
+// 6. Прикрепляем загруженные картинки к заявке
+echo "\n6. Прикрепляем файлы...\n";
+$api->attach($taskId, $guids);
 echo "OK\n";
 
-// ============================================
 // 7. Добавляем публичный комментарий
-// ============================================
 echo "\n7. Добавляем комментарий...\n";
 $comment = "Тестовый комментарий от кандидата: $fio, " . date('d.m.Y H:i:s');
-$client->post($sdUrl, [
-    'headers' => ['Authorization' => "Bearer $token"],
-    'json' => [
-        'jsonrpc' => '2.0',
-        'method' => 'M4AddTaskComment',
-        'params' => [
-            'taskId' => (int)$taskId,
-            'comment' => $comment,
-            'isPublic' => true
-        ],
-        'id' => 4
-    ]
-]);
+$api->comment($taskId, $comment);
 echo "OK: $comment\n";
 
-// ============================================
 // 8. Выход из системы
-// ============================================
-echo "\n8. Выход из системы...\n";
-$client->post('https://developer-api.m4.systems:4443/api_auth', [
-    'headers' => ['Authorization' => "Bearer $token"],
-    'json' => [
-        'jsonrpc' => '2.0',
-        'method' => 'logout',
-        'id' => 5
-    ]
-]);
+echo "\n8. Выход...\n";
+$api->logout();
 echo "OK\n\n";
 
 echo "=== ГОТОВО ===\n";
