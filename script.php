@@ -7,13 +7,8 @@ use M4\M4ApiClient;
 
 // Читаем логин и пароль из файла .env
 $env = parse_ini_file(__DIR__ . '/.env');
-<<<<<<< HEAD
-$login = $env['M4_LOGIN'] ?? null;
-$password = $env['M4_PASSWORD'] ?? null;
-=======
 $login = $env['M4_LOGIN'];
 $password = $env['M4_PASSWORD'];
->>>>>>> f2d416fcef536aa7257b8d88f33df2dd6a5c1a47
 
 // Проверяем, что логин и пароль указаны
 if (!$login || !$password) {
